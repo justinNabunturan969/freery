@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300" role="img" aria-label="Placeholder for a station photo that has not been added yet">
+  <defs>
+    <linearGradient id="ph-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F2F7F7"/>
+      <stop offset="100%" stop-color="#E4EEEE"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="400" height="300" fill="url(#ph-bg)"/>
+
+  <!-- dashed frame -->
+  <rect x="18" y="18" width="364" height="264" rx="14" fill="none" stroke="#B7D2D3" stroke-width="3" stroke-dasharray="10 9"/>
+
+  <!-- picture glyph -->
+  <g fill="none" stroke="#7FA9AB" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="140" y="104" width="120" height="88" rx="10"/>
+    <path d="M140 168l30-28 24 22 30-32 36 38"/>
+  </g>
+  <circle cx="172" cy="128" r="9" fill="#7FA9AB"/>
+</svg>

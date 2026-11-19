@@ -1,0 +1,15 @@
+{
+  "name": "@freery/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared Freery database package: schema, migrations, roles and seed data",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "reset": "node scripts/setup.mjs --reset"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "pg": "^8.13.1"
+  }
+}

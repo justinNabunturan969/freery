@@ -1,0 +1,9 @@
+# Never commit the local secrets. The .example file IS committed, so the
+# values to fill in are documented without the real ones.
+secrets.h
+
+# Arduino build output
+*.elf
+*.bin
+*.hex
+build/

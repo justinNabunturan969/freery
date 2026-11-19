@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --shell: 1180px;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  /*
+   * The space kept above an anchor.
+   *
+   * The header sticks to the top: 65px on a laptop, and about 105px on a
+   * phone, where the tab row sits under it. The anchor lands just below the
+   * header, with a little air.
+   */
+  scroll-padding-top: 7rem;
+}
+
+@media (min-width: 768px) {
+  html {
+    scroll-padding-top: 5.5rem;
+  }
+}
+
+body {
+  background-color: #f5f8fa;
+  color: #1f3243;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Keep the focus ring obvious everywhere, never remove it. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #087e83;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* The schematic route line and dots. */
+.route-line {
+  stroke: #93c2c2;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+/* The same line on the dark landing preview card. */
+.route-line-dark {
+  stroke: #5c8f94;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.route-line-muted {
+  stroke: #d7e7e8;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.station-dot {
+  fill: #ffffff;
+  stroke: #93c2c2;
+  stroke-width: 2.5;
+  transition: fill 160ms ease, stroke 160ms ease, r 160ms ease;
+}
+
+.station-dot-open:hover {
+  stroke: #087e83;
+}
+
+.station-dot-selected {
+  fill: #087e83;
+  stroke: #087e83;
+}
+
+.station-dot-closed {
+  fill: #eef1f3;
+  stroke: #c3ccd1;
+}
+
+.ferry-marker {
+  transition: transform 700ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Thin scrollbar inside the route diagram on small screens. */
+.route-scroll {
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
