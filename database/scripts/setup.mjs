@@ -29,6 +29,40 @@ const SUPERUSER = process.env.PGUSER ?? "postgres";
 const DATABASE = process.env.PGDATABASE ?? "freery";
 const RESET = process.argv.includes("--reset");
 
+/**
+ * The whole connection string, when the database is somewhere else.
+ *
+ * The head station PC uses the four PGHOST style values above. A database in
+ * the cloud is reached with one connection string instead, and that string
+ * also names the database, so the other values are not needed.
+ */
+const DATABASE_URL = process.env.DATABASE_URL ?? "";
+
+/**
+ * The pooled connection string, when there is one.
+ *
+ * The setup itself talks to the database directly, because a pooled address
+ * cannot carry a schema change. The apps that run afterwards use the pooled
+ * address, because they open connections many times.
+ */
+const POOLED_DATABASE_URL = process.env.POOLED_DATABASE_URL ?? "";
+
+/**
+ * The database the script opens first, to create the Freery database and to
+ * set its timezone. A hosted database has no "postgres" database to open, so
+ * this can be pointed at another one.
+ */
+const MAINTENANCE_DATABASE = process.env.PG_MAINTENANCE_DB ?? "postgres";
+
+/**
+ * TLS, for a database that is not on this computer.
+ *
+ * "require" and "prefer" ask for an encrypted connection without checking the
+ * certificate, which is what a hosted database usually needs.
+ */
+const SSL_MODES = new Set(["require", "prefer", "verify-ca", "verify-full"]);
+const useSsl = SSL_MODES.has(String(process.env.PGSSLMODE ?? "").toLowerCase());
+
 const SUPERUSER_SECRET_FILE = join(repoRoot, ".secrets", "postgres-superuser.txt");
 const ROLES_FILE = join(packageRoot, ".roles.json");
 const ADMIN_SECRET_FILE = join(repoRoot, ".secrets", "admin-login.txt");
@@ -83,13 +117,19 @@ async function loadRoles() {
 }
 
 async function connect(database) {
-  const client = new Client({
-    host: HOST,
-    port: PORT,
-    user: SUPERUSER,
-    password: await readSuperuserPassword(),
-    database,
-  });
+  const client = DATABASE_URL
+    ? new Client({
+        connectionString: DATABASE_URL,
+        ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+      })
+    : new Client({
+        host: HOST,
+        port: PORT,
+        user: SUPERUSER,
+        password: await readSuperuserPassword(),
+        database,
+        ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+      });
   await client.connect();
   return client;
 }
@@ -102,72 +142,65 @@ async function applySqlFile(client, file) {
 
 async function main() {
   console.log("Freery database setup");
-  console.log(`  host ${HOST}:${PORT} as ${SUPERUSER}`);
+  if (DATABASE_URL) {
+    const url = new URL(DATABASE_URL);
+    console.log(`  using the connection string for ${url.username} at ${url.hostname}`);
+  } else {
+    console.log(`  host ${HOST}:${PORT} as ${SUPERUSER}`);
+  }
 
   const roles = await loadRoles();
 
   // 1. Database
-  const admin = await connect("postgres");
-  const exists = await admin.query(
-    "SELECT 1 FROM pg_database WHERE datname = $1",
-    [DATABASE],
-  );
+  const admin = await connect(MAINTENANCE_DATABASE);
 
-  if (RESET && exists.rowCount) {
-    await admin.query(
-      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+  // A connection string names its own database, so there is nothing to create
+  // and nothing to drop. The database is already there.
+  const databaseName = DATABASE_URL
+    ? new URL(DATABASE_URL).pathname.replace(/^\//, "") || DATABASE
+    : DATABASE;
+
+  if (!DATABASE_URL) {
+    const exists = await admin.query(
+      "SELECT 1 FROM pg_database WHERE datname = $1",
       [DATABASE],
     );
-    await admin.query(`DROP DATABASE "${DATABASE}"`);
-    console.log(`  dropped database ${DATABASE}`);
+
+    if (RESET && exists.rowCount) {
+      await admin.query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+        [DATABASE],
+      );
+      await admin.query(`DROP DATABASE "${DATABASE}"`);
+      console.log(`  dropped database ${DATABASE}`);
+    }
+
+    if (!exists.rowCount || RESET) {
+      await admin.query(`CREATE DATABASE "${DATABASE}"`);
+      console.log(`  created database ${DATABASE}`);
+    } else {
+      console.log(`  database ${DATABASE} already exists`);
+    }
+  } else {
+    console.log(`  using the database ${databaseName} from the connection string`);
   }
 
-  if (!exists.rowCount || RESET) {
-    await admin.query(`CREATE DATABASE "${DATABASE}"`);
-    console.log(`  created database ${DATABASE}`);
-  } else {
-    console.log(`  database ${DATABASE} already exists`);
-  }
   // The database works in Philippine time, so the boarding date and the
   // time range in the admin console mean the same thing as the clock on the
   // wall at the station.
-  await admin.query(`ALTER DATABASE "${DATABASE}" SET timezone TO 'Asia/Manila'`);
+  await admin.query(`ALTER DATABASE "${databaseName}" SET timezone TO 'Asia/Manila'`);
   console.log("  set the database timezone to Asia/Manila");
 
   await admin.end();
 
-  // 2. Schema, views, roles
-  const db = await connect(DATABASE);
-  await applySqlFile(db, "001_schema.sql");
-
-  // The receiver's own quality numbers, the HDOP and the satellite count.
-  // It runs right after the table it adds the columns to.
-  await applySqlFile(db, "008_gps_quality.sql");
-
-  // The receiver test bench. It adds the receiver to a position and makes the
-  // boat optional, so a receiver on the bench has a record of its own.
-  await applySqlFile(db, "009_gps_receiver.sql");
-
-  // The ferry identity colour. It runs before the views, because
-  // public_ferry_state carries the colour, and before the seed, because the
-  // seed writes the colours of the reference screens.
-  await applySqlFile(db, "006_ferry_color.sql");
-
-  // The trip status is worked out from the boat's own data. It runs before the
-  // seed, because the seed lets the trigger fill the status in.
-  await applySqlFile(db, "007_derived_ferry_status.sql");
-
-  await applySqlFile(db, "002_views.sql");
-
-  // The accounts move from an email address to a username, and the researcher
-  // role goes away. This runs before the grants, because the grants name the
-  // columns of the user table.
-  await applySqlFile(db, "005_username.sql");
-
-  // Roles are created and given their passwords here, not inside a SQL DO
-  // block. PostgreSQL does not apply a password change made inside a DO
-  // block, which leaves the role with a password nobody knows.
+  // 2. The roles come first.
   //
+  // The schema files give rights to these roles, and PostgreSQL refuses a
+  // grant to a role that does not exist yet. On the head station PC the roles
+  // were already there from an earlier run, so the order did not matter. A
+  // new database, such as one in the cloud, has none of them.
+  const db = await connect(DATABASE);
+
   // The old counter role is renamed first, so its password and its grants
   // carry over instead of leaving a dead role behind.
   const legacy = await db.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [
@@ -198,9 +231,36 @@ async function main() {
     }
   }
 
+  // 3. Schema, views and grants
+  await applySqlFile(db, "001_schema.sql");
+
+  // The receiver's own quality numbers, the HDOP and the satellite count.
+  // It runs right after the table it adds the columns to.
+  await applySqlFile(db, "008_gps_quality.sql");
+
+  // The receiver test bench. It adds the receiver to a position and makes the
+  // boat optional, so a receiver on the bench has a record of its own.
+  await applySqlFile(db, "009_gps_receiver.sql");
+
+  // The ferry identity colour. It runs before the views, because
+  // public_ferry_state carries the colour, and before the seed, because the
+  // seed writes the colours of the reference screens.
+  await applySqlFile(db, "006_ferry_color.sql");
+
+  // The trip status is worked out from the boat's own data. It runs before the
+  // seed, because the seed lets the trigger fill the status in.
+  await applySqlFile(db, "007_derived_ferry_status.sql");
+
+  await applySqlFile(db, "002_views.sql");
+
+  // The accounts move from an email address to a username, and the researcher
+  // role goes away. This runs before the grants, because the grants name the
+  // columns of the user table.
+  await applySqlFile(db, "005_username.sql");
+
   await applySqlFile(db, "003_grants.sql");
 
-  // 3. Seed
+  // 4. Seed
   await applySqlFile(db, "004_seed.sql");
 
   // 4. Users, with bcrypt hashes. The admin password is generated and shown
@@ -331,11 +391,33 @@ function researchPassword() {
 }
 
 function dbUrl(role, password) {
+  const template = POOLED_DATABASE_URL || DATABASE_URL;
+  if (template) {
+    const url = new URL(template);
+    url.username = role;
+    url.password = password;
+    return url.toString();
+  }
   return `postgresql://${role}:${password}@${HOST}:${PORT}/${DATABASE}`;
 }
 
 async function writeEnv(path, values) {
-  const body = Object.entries(values)
+  // The values that are already in the file are kept, so the login secret and
+  // the device key survive a rerun. The device key is in the firmware of the
+  // port station, so a new one would stop the hardware from being heard.
+  const existing = {};
+  if (existsSync(path)) {
+    for (const rawLine of (await readFile(path, "utf8")).split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const split = line.indexOf("=");
+      if (split === -1) continue;
+      existing[line.slice(0, split).trim()] = line.slice(split + 1).trim();
+    }
+  }
+
+  const merged = { ...existing, ...values };
+  const body = Object.entries(merged)
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
   await mkdir(dirname(path), { recursive: true });
