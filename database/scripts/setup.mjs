@@ -242,6 +242,11 @@ async function main() {
   // boat optional, so a receiver on the bench has a record of its own.
   await applySqlFile(db, "009_gps_receiver.sql");
 
+  // The receiver's network. The board is told a new Wi-Fi name and password
+  // from the console instead of from secrets.h, so the board does not have to
+  // be flashed again every time the network changes.
+  await applySqlFile(db, "010_receiver_network.sql");
+
   // The ferry identity colour. It runs before the views, because
   // public_ferry_state carries the colour, and before the seed, because the
   // seed writes the colours of the reference screens.
@@ -263,6 +268,20 @@ async function main() {
   // 4. Seed
   await applySqlFile(db, "004_seed.sql");
 
+  /*
+   * The id sequences are put back in step with the rows that are there.
+   *
+   * The seed uses fixed ids and moves the sequences itself, but a row added by
+   * hand afterwards does not. Ferry 5 carries the id 21, and the Ferry
+   * sequence was left at 4, so every ferry added from the console took the
+   * next number and eventually the sequence handed out 21 again. Adding a
+   * ferry then failed with a duplicate key error.
+   *
+   * This runs last, so it always ends up past whatever is really in the
+   * tables.
+   */
+  await applySqlFile(db, "011_sequence_sync.sql");
+
   // 4. Users, with bcrypt hashes. The admin password is generated and shown
   //    once, then stored in .secrets/admin-login.txt for this machine only.
   let adminPassword = process.env.ADMIN_PASSWORD;
@@ -281,14 +300,29 @@ async function main() {
   const staffPassword = process.env.STAFF_PASSWORD ?? "station123";
   const staffHash = await bcrypt.hash(staffPassword, 12);
 
-  // The master administrator, and one station administrator for every station
-  // on the route. The station accounts all share the example password, which
-  // the master administrator changes from the accounts page.
+  /*
+   * The master administrator, and one station administrator for every station
+   * on the route. The station accounts all share the example password, which
+   * the master administrator changes from the accounts page.
+   *
+   * The name of a station account is taken from the station it works at, so
+   * it reads "Guadalupe Ferry Station administrator" and not "Station 1
+   * administrator". The names are read out of the Station table, which the
+   * seed has just filled, so a route that is renamed later needs nothing
+   * changed here.
+   */
+  const stationNames = new Map(
+    (await db.query('SELECT id, name FROM "Station" ORDER BY id')).rows.map((row) => [
+      row.id,
+      row.name,
+    ]),
+  );
+
   const accounts = [
     ["admin", "Master administrator", "ADMIN", null, adminHash],
     ...Array.from({ length: 8 }, (_, i) => [
       `station${i + 1}`,
-      `Station ${i + 1} administrator`,
+      `${stationNames.get(i + 1) ?? `Station ${i + 1}`} administrator`,
       "STAFF",
       i + 1,
       staffHash,

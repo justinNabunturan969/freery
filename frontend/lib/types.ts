@@ -75,16 +75,28 @@ export interface StationContent {
   photos: { src: string; alt: string; caption: string }[];
   /** Google Maps link to the station's exact location */
   mapsUrl: string | null;
+  /** The landmark nearest the station, so a passenger can ask a person for it */
+  landmark: string | null;
+  /**
+   * The short name, without "Ferry Station" or "Ferry Terminal".
+   *
+   * It is used where the full name will not fit, such as the label under a
+   * dot on the route diagram. The full name is still what the passenger reads
+   * everywhere else.
+   */
+  shortName: string | null;
   contact: {
     mobile: string | null;
     email: string | null;
     social: string | null;
   };
   /**
-   * True while the name, coordinates, photos and details of this station are
-   * still placeholders. The physical device and the route survey are not
-   * finished, so nothing about this station is real yet and the UI has to
-   * say so instead of pretending otherwise.
+   * True while this station's details are still placeholders.
+   *
+   * The route survey is done, so the eight stations on the route are real and
+   * this stays false for all of them. It only turns true for a station that
+   * has no surveyed name, position or Maps link yet, so the UI can say so
+   * instead of pretending otherwise.
    */
   isPlaceholder?: boolean;
 }

@@ -5,9 +5,9 @@ import type { StationContent } from "@/lib/types";
 /**
  * Station photos with captions.
  *
- * Until the device is finished and the stations are surveyed there are no
- * real photos, so the panel shows the placeholder image. The caption under
- * each one says what the photo will be once it has been taken.
+ * The stations have been surveyed, but no real photos have been taken yet, so
+ * the panel shows the placeholder image. The caption under each one says what
+ * the photo will be once it has been taken.
  */
 export function StationPhotos({ content }: { content: StationContent }) {
   if (content.photos.length === 0) {
@@ -27,8 +27,8 @@ export function StationPhotos({ content }: { content: StationContent }) {
       <ul className="mt-3 grid grid-cols-2 gap-3">
         {content.photos.map((photo) => (
           // The caption is the key, and not the picture. Every slot points at
-          // the same placeholder image until the stations are surveyed, and
-          // two children with the same key make React drop one of them.
+          // the same placeholder image until real photos are taken, and two
+          // children with the same key make React drop one of them.
           <li key={photo.caption}>
             <figure>
               <img

@@ -9,10 +9,10 @@ export const STATION_COUNT = 8;
 /**
  * Ferry identity colours. Used on markers, icons, seat bars and callouts.
  *
- * The palette is the same one the admin console uses. This app is deployed on
- * its own and does not share that package, so it keeps its own copy. The two
- * have to agree on the names, and the database refuses a colour that is not on
- * the list.
+ * The palette is the same one in `packages/shared/ferryColors.ts`. This app
+ * is deployed on its own and does not share that package, so it keeps its
+ * own copy. The two have to agree on the names, and the database refuses a
+ * colour that is not on the list.
  */
 export const FERRY_COLOR_NAMES = [
   "orange",

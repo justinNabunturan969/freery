@@ -102,4 +102,72 @@
 #define WIFI_ATTEMPTS 40
 #define WIFI_WAIT_MS 500
 
+/* --- The board's own setup page ------------------------------------------- */
+/*
+ * When the board has no network at all, it cannot reach the PC, and there is
+ * nothing the console can do about it. So the board puts up a small network of
+ * its own, and a page on it where a phone can type the network in.
+ *
+ * Join the Wi-Fi called Freery-Setup, open http://192.168.4.1 in any browser,
+ * and the page asks for the name and the password of the network the board
+ * should use. The board remembers it, so this is only needed once.
+ *
+ * The page also comes up when the board has a network but cannot reach the PC
+ * for a while, which happens when the PC moves to another network. That way a
+ * person can fix it without opening the Arduino IDE.
+ */
+#define SETUP_AP_NAME "Freery-Setup"
+
+/*
+ * The pin that brings the setup page up, and the way out of a network that is
+ * no longer there.
+ *
+ * Put a jumper wire between this pin and GND, or fit a button between them.
+ * Then:
+ *
+ *   - hold it down while the board starts, and the setup page comes up at
+ *     once;
+ *   - hold it down for a few seconds while the board is running, and the
+ *     setup page comes up then.
+ *
+ * Either way, a phone joins the board's own network and the network is typed
+ * in on a page in the phone. **No computer and no Arduino IDE are needed.**
+ * That matters on the day the units are fitted at the port station, where
+ * there is no laptop and no IDE.
+ *
+ * GPIO 27 is free on the usual DevKit board. It must be a pin that is not
+ * used by anything else, because it is read with the internal pull-up: the
+ * pin is LOW when it is shorted to GND.
+ */
+#define SETUP_BUTTON_PIN 27
+
+/*
+ * How long the setup button has to be held down.
+ *
+ * Three seconds is long enough that it is not pressed by accident, and short
+ * enough that nobody stands there waiting for it.
+ */
+#define SETUP_HOLD_MS 3000
+
+/* --- How often the board asks the PC for work ----------------------------- */
+/*
+ * The board asks the PC every few seconds whether it has been given a
+ * different network to use. The answer carries that network once, and the
+ * board tries it.
+ */
+#define LINK_INTERVAL_MS 5000
+
+/*
+ * How long the board tries to reach the PC before it puts up its own setup
+ * page. The PC may simply be switched off for the night, so the board waits a
+ * while before it makes a fuss.
+ */
+#define LINK_GRACE_MS 90000
+
+/*
+ * How long a new network is given before it is called a failure. A router
+ * that is a long way away, or one with a weak signal, needs a moment.
+ */
+#define NEW_NETWORK_TIMEOUT_MS 20000
+
 #endif /* FREERY_CONFIG_H */

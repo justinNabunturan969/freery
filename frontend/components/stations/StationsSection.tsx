@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StationDetail } from "@/components/stations/StationDetail";
+import { StationPicker } from "@/components/stations/StationPicker";
 import { RouteDiagram } from "@/components/tracking/RouteDiagram";
 import type { TrackingData } from "@/components/tracking/useFerryTracking";
 import { ExampleDataChip } from "@/components/ui/ExampleDataChip";
 import { LastUpdated } from "@/components/ui/LastUpdated";
-import { PlaceholderBadge } from "@/components/ui/PlaceholderBadge";
 import { ROUTE_NAME, STATION_COUNT } from "@/lib/constants";
 
 /**
@@ -97,7 +97,6 @@ export function StationsSection({
                 timestamp={servedAt}
                 note={useMock ? "Example route" : undefined}
               />
-              <PlaceholderBadge label="Placeholder stations" />
             </div>
           </div>
 
@@ -129,8 +128,16 @@ export function StationsSection({
               Find your station
             </h2>
             <p className="mt-1 text-[13px] text-ink-muted">
-              Tap a dot on the route to see details, photos and location.
+              Choose a station to see its details, its contacts and its location.
+              You can also tap a dot on the route above.
             </p>
+          </div>
+
+          <div className="mt-4">
+            <StationPicker
+              selectedId={selected?.id ?? null}
+              onSelect={selectStation}
+            />
           </div>
 
           <div ref={detailsRef} className="mt-6">

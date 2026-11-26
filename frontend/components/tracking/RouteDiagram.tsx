@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FerryView } from "@/lib/ferryView";
 import type { Station } from "@/lib/types";
 import { SCHEMATIC_NOTE } from "@/lib/constants";
+import { getStationContent } from "@/lib/stationContent";
 import { useIsMobile } from "@/lib/useMediaQuery";
 import { FerryCallout } from "./FerryCallout";
 import { FerryMarker } from "./FerryMarker";
@@ -20,6 +21,22 @@ import { StationDot } from "./StationDot";
  * The same component draws the route on the Ferries and Stations pages and
  * in the landing page preview, so the three can never disagree.
  */
+
+/**
+ * The name written under a station dot.
+ *
+ * The real station names are long ("Quinta Market Ferry Terminal") and the
+ * label under a dot has only a narrow column, so the long name wraps over
+ * three lines and lands on the station below it. The short name is the place
+ * name on its own, which is what the survey document calls the station and
+ * what people say out loud.
+ *
+ * The full name is still what the passenger reads in the station details, in
+ * the list of stations, and in the accessible name of the dot itself.
+ */
+function stationLabel(station: Station): string {
+  return getStationContent(station.id).shortName ?? station.name;
+}
 
 /**
  * The width of the callout card.
@@ -351,7 +368,7 @@ function HorizontalDiagram({
               top: lineY + 20,
             }}
           >
-            {station.name}
+            {stationLabel(station)}
           </span>
         ))}
 
@@ -409,7 +426,14 @@ function HorizontalDiagram({
 /* -------------------------------------------------------------------------- */
 
 const ROW_H = 54;
-const LINE_X = 88;
+/**
+ * Where the vertical line sits, measured from the left edge.
+ *
+ * It is far enough across to hold a station name. The column to the left of
+ * the line is the name, and it has to be wide enough for the longest one,
+ * otherwise the name wraps over three lines and lands on the station below.
+ */
+const LINE_X = 104;
 
 function VerticalDiagram({
   stations,
@@ -472,17 +496,17 @@ function VerticalDiagram({
       {stations.map((station, index) => (
         <span
           key={`label-${station.id}`}
-          className={`pointer-events-none absolute text-[12px] ${
+          className={`pointer-events-none absolute text-[12px] leading-tight ${
             dark ? "text-white/70" : "text-ink-muted"
           }`}
           style={{
             top: index * ROW_H + 13,
             left: 0,
-            width: LINE_X - 22,
+            width: LINE_X - 18,
             textAlign: "right",
           }}
         >
-          {station.name}
+          {stationLabel(station)}
         </span>
       ))}
 

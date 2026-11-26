@@ -15,22 +15,44 @@ export type { MockScenario };
  * change, not a rewrite.
  *
  * ---------------------------------------------------------------------------
- * PLACEHOLDER STATION COORDINATES
- * The real names and coordinates of the 8 stations are not known yet
- * (section 15 of the brief). The points below are obviously synthetic: they
- * sit on one straight east west line, about 3.2 km apart, with round
- * coordinates. They exist only so that route progress, distance and ETA work
- * before the real API is ready. Replace them with the surveyed coordinates.
+ * THE STATIONS ARE REAL
+ * The eight stations below are the real ones, in the order they are served,
+ * with the coordinates from the survey. They are the same stations the
+ * database holds and the same ones the read-only API returns, so the mock
+ * route looks exactly like the live route.
+ *
+ * The coordinates are the ones used to draw the schematic diagram and to work
+ * out the distance and the arrival time. The diagram says on it that it is not
+ * for navigation.
  * ---------------------------------------------------------------------------
  */
 
-const PLACEHOLDER_LAT = 14.6;
-const PLACEHOLDER_LON_START = 120.95;
-/** ~3.2 km at this latitude. */
-const PLACEHOLDER_LON_STEP = 0.0297;
+/**
+ * The eight stations, in the order they are served.
+ *
+ * These are the real names and the real positions. The Google Maps links live
+ * in lib/stationContent.ts, because the read-only API does not carry them.
+ */
+const MOCK_STATIONS: { name: string; lat: number; lon: number }[] = [
+  { name: "Guadalupe Ferry Station", lat: 14.5679915, lon: 121.0478734 },
+  { name: "Hulo Ferry Station", lat: 14.5680204, lon: 121.0337175 },
+  { name: "Valenzuela Ferry Station", lat: 14.5739117, lon: 121.0257227 },
+  { name: "Lambingan Ferry Terminal", lat: 14.5872813, lon: 121.018456 },
+  { name: "Santa Ana Ferry Station", lat: 14.5826753, lon: 121.0120195 },
+  { name: "Pureza Ferry Terminal", lat: 14.6016408, lon: 121.0050997 },
+  { name: "Quinta Market Ferry Terminal", lat: 14.5966352, lon: 120.982774 },
+  { name: "Escolta River Ferry", lat: 14.5964417, lon: 120.9774937 },
+];
 
-/** Length of one station to station segment, in km. */
-const SEGMENT_KM = 3.2;
+/**
+ * Length of one station to station segment, in km.
+ *
+ * The real route runs about 10.4 km from Guadalupe to Escolta over seven
+ * segments, so each segment is about 1.5 km on average. The segments are not
+ * all the same length in real life, but the ferry simulation only needs a
+ * typical one.
+ */
+const SEGMENT_KM = 1.5;
 
 const SECONDS_PER_HOUR = 3600;
 
@@ -39,17 +61,17 @@ function round6(value: number): number {
 }
 
 export function getMockStations(scenario: MockScenario = "normal"): Station[] {
-  return Array.from({ length: 8 }, (_, i) => {
+  return MOCK_STATIONS.map((station, i) => {
     const closed = scenario === "closed" && i === 4;
     return {
       id: i + 1,
-      name: `Station ${i + 1}`,
-      lat: PLACEHOLDER_LAT,
-      lon: round6(PLACEHOLDER_LON_START + i * PLACEHOLDER_LON_STEP),
+      name: station.name,
+      lat: station.lat,
+      lon: station.lon,
       order: i + 1,
       isOpen: !closed,
       notice: closed
-        ? "Docking repairs at this station. The next available ferry is at Station 6."
+        ? "Docking repairs at this station. The next available ferry is at Pureza Ferry Terminal."
         : null,
     };
   });

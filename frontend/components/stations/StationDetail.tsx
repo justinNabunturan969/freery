@@ -5,6 +5,8 @@ import { ROUTE_NAME } from "@/lib/constants";
 import type { FerryView } from "@/lib/ferryView";
 import type { Station } from "@/lib/types";
 import { PlaceholderBadge } from "@/components/ui/PlaceholderBadge";
+import { ContactRow } from "@/components/ui/ContactRow";
+import { LinkIcon, MailIcon, PhoneIcon } from "@/components/ui/icons";
 import { MapsButton } from "./MapsButton";
 import { StationPhotos } from "./StationPhotos";
 
@@ -14,6 +16,10 @@ import { StationPhotos } from "./StationPhotos";
  * Live open or closed state and the notice come from the API. Operating
  * hours, boarding information, photos, the Google Maps link and the contact
  * details come from the static file in lib/stationContent.ts.
+ *
+ * Everything a passenger would ask about a station is on this one panel: when
+ * it is open, where it is, when the boats come, how to board, and how to reach
+ * the people who work there.
  */
 export function StationDetail({
   station,
@@ -74,6 +80,13 @@ export function StationDetail({
           </div>
         ) : null}
 
+        {content.landmark ? (
+          <p className="mt-3 text-[13px] text-ink-muted">
+            Nearest landmark:{" "}
+            <span className="font-medium text-ink">{content.landmark}</span>
+          </p>
+        ) : null}
+
         {station.notice ? (
           <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-[13px] text-amber-900">
             {station.notice}
@@ -102,6 +115,36 @@ export function StationDetail({
           <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">
             {content.boardingInfo}
           </p>
+        </div>
+
+        {/*
+          The contacts. A passenger who wants to ask something needs a way to
+          ask it, so the mobile number, the email address and the social link
+          are here, on the same panel as everything else. A value that has not
+          been published yet says so.
+        */}
+        <div className="mt-5 rounded-xl border border-line bg-white p-4">
+          <p className="text-[13px] font-semibold text-ink">Station contacts</p>
+          <p className="mt-1 text-[12px] text-ink-muted">
+            Reach the people who work at {station.name}.
+          </p>
+          <div className="mt-4 space-y-4">
+            <ContactRow
+              icon={PhoneIcon}
+              label="Mobile number"
+              value={content.contact.mobile}
+            />
+            <ContactRow
+              icon={MailIcon}
+              label="Email address"
+              value={content.contact.email}
+            />
+            <ContactRow
+              icon={LinkIcon}
+              label="Social link"
+              value={content.contact.social}
+            />
+          </div>
         </div>
 
         <p className="mt-4 text-[12px] text-ink-faint">

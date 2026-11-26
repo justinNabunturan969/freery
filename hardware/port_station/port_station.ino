@@ -56,6 +56,10 @@
  *   5. The boat sends the older packet without the quality numbers. The board
  *      stores it anyway, and leaves the quality empty rather than making it up.
  *
+ * The network is not in this file. It is given from the console on the PC and
+ * the board remembers it, so changing it does not mean flashing the board
+ * again. See network.h for how that works.
+ *
  * Board: ESP32 DevKit.
  * Libraries: Arduino-LoRa (Sandeep Mistry) version 0.8.0 or newer,
  * Adafruit SSD1306, Adafruit GFX.
@@ -81,6 +85,25 @@
 #endif
 
 #include "secrets.h"
+/*
+ * The board's own network code.
+ *
+ * The file is called station_network.h, not network.h, on purpose. The ESP32
+ * board package has a library header of its own called Network.h, and the
+ * sketch folder is searched first. A file called network.h in this folder would
+ * take that name and break the Wi-Fi library. The board package matches names
+ * exactly, so a different name here keeps the two apart.
+ */
+#include "station_network.h"
+
+/*
+ * The board's network.
+ *
+ * It is kept in the board's own memory, it asks the PC every few seconds
+ * whether it has been given a different network, and it puts up its own setup
+ * page when there is nothing to be on. See network.h.
+ */
+static PortStationNetwork network;
 
 #if USE_DISPLAY
 static Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, -1);
@@ -114,6 +137,10 @@ static bool haveWaiting = false;
 static int waitingTries = 0;
 static String lastLine = "Waiting for a boat";
 static String lastDetail = "";
+/* The last thing the network module said, so the display can show it. */
+static String lastNetworkNotice = "";
+/* Whether the setup page is up, so the display only changes when it does. */
+static bool lastSetupUp = false;
 
 /*
  * These three are kept here rather than inside loop(). On the ESP32 the
@@ -199,24 +226,6 @@ static bool startRadio() {
   return true;
 }
 
-/** Puts the network up and keeps it up. */
-static void connectWifi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    return;
-  }
-  Serial.print("Connecting to the network");
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  for (int attempt = 0; attempt < WIFI_ATTEMPTS; attempt++) {
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf(" — up, %s\n", WiFi.localIP().toString().c_str());
-      return;
-    }
-    Serial.print(".");
-    delay(WIFI_WAIT_MS);
-  }
-  Serial.println(" — no network");
-}
-
 /** Draws the last thing that happened on the small display. */
 static void showScreen(const String &line, const String &detail) {
 #if USE_DISPLAY
@@ -253,14 +262,11 @@ static void showScreen(const String &line, const String &detail) {
  * Returns the HTTP code, or 0 when the PC could not be reached at all.
  */
 static int postToPc(const String &body, String &reply) {
-  if (WiFi.status() != WL_CONNECTED) {
-    /* The network drops from time to time. Get it back rather than leaving
-       the boat off the map for good. */
-    connectWifi();
-    if (WiFi.status() != WL_CONNECTED) {
-      reply = "no network";
-      return 0;
-    }
+  if (!network.ensureConnected()) {
+    /* The network drops from time to time. The board gets it back rather than
+       leaving the boat off the map for good. */
+    reply = "no network";
+    return 0;
   }
 
   HTTPClient http;
@@ -537,12 +543,21 @@ void setup() {
 #endif
   showScreen("Starting", "");
 
+  /*
+   * The network comes up first, so that the board is reachable from the PC
+   * even when the radio is not working. A radio that did not start can then be
+   * seen from the console instead of only from the Serial Monitor.
+   */
+  network.begin();
+
   if (!startRadio()) {
     Serial.println("The radio did not start. Check the wiring and the settings.");
     Serial.println("The two units must have the same frequency, spreading factor,");
     Serial.println("bandwidth, coding rate and sync word.");
     showScreen("Radio did not start", "Check the wiring");
     while (true) {
+      /* The network is still kept up, so the board can still be reached. */
+      network.maintain();
       delay(1000);
     }
   }
@@ -550,16 +565,18 @@ void setup() {
   Serial.printf("Radio up at %.3f MHz, spreading factor %d\n",
                 (double)LORA_FREQ / 1000000.0, LORA_SF);
 
-  connectWifi();
   showScreen(lastLine, lastDetail);
 }
-
 void loop() {
   /*
    * The radio is read every time round, even while the PC cannot be reached.
    * The radio's own buffer is small, and a packet that is not read is lost.
    * The newest position replaces the one that was waiting, so when the PC
    * comes back the boat is where it is now and not where it was.
+   *
+   * The radio comes first, and the network second, because getting the
+   * network back takes a while. A boat's packet must not be lost waiting for
+   * that.
    */
   if (readPacket(waiting)) {
     Serial.printf("%s\n", describe.c_str());
@@ -571,11 +588,47 @@ void loop() {
     showScreen("Bad packet", describe);
   }
 
-  if (!haveWaiting) {
-    /* Nothing to send. Wait a moment instead of spinning on the radio. */
-    delay(2);
+  /*
+   * The network is kept up, and the setup page is served when it is up.
+   */
+  network.maintain();
+
+  /*
+   * When the board puts up its setup page, the display says so, because
+   * somebody standing at the board needs to know that a phone is the next
+   * step. The screen is only redrawn when the state changes, so that it does
+   * not flicker.
+   */
+  bool setupUp = network.isSetupOpen();
+  if (setupUp != lastSetupUp) {
+    lastSetupUp = setupUp;
+    if (setupUp) {
+      showScreen("Setup mode", "Join Freery-Setup, open 192.168.4.1");
+    } else {
+      showScreen(lastLine, lastDetail);
+    }
+  }
+
+  if (haveWaiting) {
+    sendWaiting();
     return;
   }
 
-  sendWaiting();
+  /*
+   * Nothing to send. This is the moment to ask the PC whether the board has
+   * been given a different network to use. It is asked here rather than at the
+   * top of the loop, so that a packet from a boat is never held up while the
+   * board waits for the PC to answer.
+   */
+  network.askThePc();
+
+  /* The setup page has its own message on the display, so the network's
+     message does not take that screen away. */
+  if (!lastSetupUp && network.notice() != lastNetworkNotice) {
+    lastNetworkNotice = network.notice();
+    showScreen(lastLine, lastNetworkNotice);
+  }
+
+  /* Wait a moment instead of spinning on the radio. */
+  delay(2);
 }
