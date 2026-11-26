@@ -4,14 +4,21 @@
  *   node scripts/setup.mjs            create or update the freery database
  *   node scripts/setup.mjs --reset    drop it first and start clean
  *
- * It needs the PostgreSQL superuser password. It reads it from
- * PG_PASSWORD, or from .secrets/postgres-superuser.txt in the repository
- * root. The three application role passwords are generated once and kept in
+ * **The database is Neon.** It is not the PostgreSQL that used to run on this
+ * PC any more. The connection strings live in the repository's own
+ * `.env.local`, and this script reads them from there, so a run needs no
+ * arguments and no environment variables.
+ *
+ * The three application role passwords are generated once and kept in
  * .roles.json, so every run is repeatable.
+ *
+ * The old local server can still be reached, but only when it is asked for by
+ * name. Set `FREERY_LOCAL_DB=1` and the script uses PGHOST, PGPORT, PGUSER,
+ * PGDATABASE and PG_PASSWORD instead. That is the only way it will touch it.
  */
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -23,29 +30,69 @@ const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, "..");
 const repoRoot = resolve(packageRoot, "..", "..");
 
+/**
+ * The local PostgreSQL is no longer the system of record, so it is only used
+ * when it is asked for by name. Nothing else reaches for it.
+ */
+const USE_LOCAL_DB = process.env.FREERY_LOCAL_DB === "1";
+
 const HOST = process.env.PGHOST ?? "127.0.0.1";
 const PORT = Number(process.env.PGPORT ?? 5432);
 const SUPERUSER = process.env.PGUSER ?? "postgres";
 const DATABASE = process.env.PGDATABASE ?? "freery";
 const RESET = process.argv.includes("--reset");
 
-/**
- * The whole connection string, when the database is somewhere else.
- *
- * The head station PC uses the four PGHOST style values above. A database in
- * the cloud is reached with one connection string instead, and that string
- * also names the database, so the other values are not needed.
- */
-const DATABASE_URL = process.env.DATABASE_URL ?? "";
+/* --- the connection strings ------------------------------------------------ */
 
 /**
- * The pooled connection string, when there is one.
- *
- * The setup itself talks to the database directly, because a pooled address
- * cannot carry a schema change. The apps that run afterwards use the pooled
- * address, because they open connections many times.
+ * Reads a plain KEY=value file into an object. A value in quotes loses its
+ * quotes, so a connection string with a password in it is read correctly.
  */
-const POOLED_DATABASE_URL = process.env.POOLED_DATABASE_URL ?? "";
+function readEnvFile(path) {
+  const values = {};
+  if (!existsSync(path)) return values;
+  for (const rawLine of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const split = line.indexOf("=");
+    if (split === -1) continue;
+    let value = line.slice(split + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    values[line.slice(0, split).trim()] = value;
+  }
+  return values;
+}
+
+/**
+ * The repository's own `.env.local` is where the Neon connection strings live.
+ * It is the one file that says which database this project uses, so it is read
+ * before anything else is decided.
+ */
+const repoEnv = readEnvFile(join(repoRoot, ".env.local"));
+
+/**
+ * The pooled connection string. The apps that run afterwards use it, because
+ * they open connections many times.
+ */
+const POOLED_DATABASE_URL =
+  process.env.POOLED_DATABASE_URL ?? repoEnv.DATABASE_URL ?? "";
+
+/**
+ * The direct connection string. The setup talks to the database through it,
+ * because a pooled address cannot carry a schema change: the pooler hands out
+ * one transaction at a time and a `CREATE ROLE` or an `ALTER DATABASE` needs
+ * the whole session.
+ */
+const DATABASE_URL =
+  process.env.DATABASE_URL_UNPOOLED ??
+  repoEnv.DATABASE_URL_UNPOOLED ??
+  process.env.DATABASE_URL ??
+  "";
 
 /**
  * The database the script opens first, to create the Freery database and to
@@ -55,13 +102,33 @@ const POOLED_DATABASE_URL = process.env.POOLED_DATABASE_URL ?? "";
 const MAINTENANCE_DATABASE = process.env.PG_MAINTENANCE_DB ?? "postgres";
 
 /**
- * TLS, for a database that is not on this computer.
+ * The connection string the setup itself uses.
+ *
+ * In the normal case it is the direct Neon address, because the setup carries
+ * out schema changes and a pooled address cannot carry them. When the local
+ * server is asked for by name it is empty, and the four PGHOST style values
+ * are used instead.
+ */
+const SETUP_URL = USE_LOCAL_DB ? "" : DATABASE_URL;
+
+/**
+ * The pooled address the apps are given. The setup writes it into the
+ * environment files of the three programs, because they open connections many
+ * times and a pooler is what they want.
+ */
+const APPS_URL = USE_LOCAL_DB ? "" : POOLED_DATABASE_URL;
+
+/**
+ * TLS.
  *
  * "require" and "prefer" ask for an encrypted connection without checking the
- * certificate, which is what a hosted database usually needs.
+ * certificate, which is what a hosted database usually needs. A hosted
+ * database needs it, so it is on by default there. The local server does not
+ * use it.
  */
 const SSL_MODES = new Set(["require", "prefer", "verify-ca", "verify-full"]);
-const useSsl = SSL_MODES.has(String(process.env.PGSSLMODE ?? "").toLowerCase());
+const useSsl = SSL_MODES.has(String(process.env.PGSSLMODE ?? "").toLowerCase())
+  || (!USE_LOCAL_DB && Boolean(SETUP_URL));
 
 const SUPERUSER_SECRET_FILE = join(repoRoot, ".secrets", "postgres-superuser.txt");
 const ROLES_FILE = join(packageRoot, ".roles.json");
@@ -117,9 +184,9 @@ async function loadRoles() {
 }
 
 async function connect(database) {
-  const client = DATABASE_URL
+  const client = SETUP_URL
     ? new Client({
-        connectionString: DATABASE_URL,
+        connectionString: SETUP_URL,
         ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
       })
     : new Client({
@@ -142,11 +209,23 @@ async function applySqlFile(client, file) {
 
 async function main() {
   console.log("Freery database setup");
-  if (DATABASE_URL) {
-    const url = new URL(DATABASE_URL);
-    console.log(`  using the connection string for ${url.username} at ${url.hostname}`);
+
+  if (!SETUP_URL && !USE_LOCAL_DB) {
+    throw new Error(
+      "No connection string was found, and this script will not fall back to a\n" +
+      "server on this computer.\n" +
+      "The database is Neon. Put DATABASE_URL and DATABASE_URL_UNPOOLED in the\n" +
+      "repository's .env.local, or set DATABASE_URL in the environment.\n" +
+      "To use the old local PostgreSQL on purpose, set FREERY_LOCAL_DB=1.",
+    );
+  }
+
+  if (SETUP_URL) {
+    const url = new URL(SETUP_URL);
+    console.log(`  the cloud database at ${url.hostname}`);
+    console.log(`  as the user ${url.username}`);
   } else {
-    console.log(`  host ${HOST}:${PORT} as ${SUPERUSER}`);
+    console.log(`  the local server at ${HOST}:${PORT} as ${SUPERUSER}`);
   }
 
   const roles = await loadRoles();
@@ -156,11 +235,11 @@ async function main() {
 
   // A connection string names its own database, so there is nothing to create
   // and nothing to drop. The database is already there.
-  const databaseName = DATABASE_URL
-    ? new URL(DATABASE_URL).pathname.replace(/^\//, "") || DATABASE
+  const databaseName = SETUP_URL
+    ? new URL(SETUP_URL).pathname.replace(/^\//, "") || DATABASE
     : DATABASE;
 
-  if (!DATABASE_URL) {
+  if (!SETUP_URL) {
     const exists = await admin.query(
       "SELECT 1 FROM pg_database WHERE datname = $1",
       [DATABASE],
@@ -425,9 +504,8 @@ function researchPassword() {
 }
 
 function dbUrl(role, password) {
-  const template = POOLED_DATABASE_URL || DATABASE_URL;
-  if (template) {
-    const url = new URL(template);
+  if (APPS_URL) {
+    const url = new URL(APPS_URL);
     url.username = role;
     url.password = password;
     return url.toString();

@@ -68,16 +68,29 @@ shore: it listens, and forwards what it hears to the PC over the network.
 
 ### 1. The database
 
-You need PostgreSQL 17 running. Then:
+The database is **Neon**, a PostgreSQL in the cloud. There is nothing to
+install and no server to start. Put your connection strings in a `.env.local`
+file at the top of the repository:
+
+```
+DATABASE_URL=postgresql://<user>:<password>@<neon-pooler-host>/<database>
+DATABASE_URL_UNPOOLED=postgresql://<user>:<password>@<neon-host>/<database>
+```
+
+The pooled address is for the apps. The direct one is for the setup, because a
+pooled address cannot carry a schema change. Then:
 
 ```powershell
 Set-Location database
-$env:PGPASSWORD = 'your postgres superuser password'
 node scripts/setup.mjs
 ```
 
-It creates the `freery` database, the tables, the views, the permissions and
-the example data, and it prints the admin login it made.
+It creates the tables, the views, the permissions and the example data, and it
+prints the admin login it made.
+
+> **The seed empties the tables first.** `004_seed.sql` truncates the stations,
+> the ferries, the accounts, the passenger events and the GPS log before it puts
+> the example data back.
 
 ### 2. The back end
 
@@ -85,7 +98,7 @@ Create `backend/.env.local`:
 
 ```
 PORT=4000
-DATABASE_URL=postgresql://freery_public:<the password>:<the port>/freery
+DATABASE_URL=postgresql://freery_public:<the password>@<neon-pooler-host>/<database>
 API_SECRET=<a long random string>
 ```
 
@@ -164,7 +177,7 @@ deleting the file. A deleted file stays in the git history.
 ```
   the boat's GPS  →  LoRa radio  →  the port station  →  Wi-Fi  →  the PC
    a fix every 7 s    a second       reads the radio      a POST     stores it
-                                                        the API    in PostgreSQL
+                                                        the API    in the database
                                                             │
                                                             ▼
                                                   the passenger website
@@ -186,5 +199,5 @@ seconds.
 | --- | --- |
 | Front end | Next.js 15, React 19, Tailwind CSS, SWR, zod |
 | Back end | Express, `pg` |
-| Database | PostgreSQL 17 |
+| Database | PostgreSQL 17, hosted on Neon |
 | Firmware | Arduino IDE, ESP32, RA-02 (SX1278) LoRa, NEO-6M GPS |
